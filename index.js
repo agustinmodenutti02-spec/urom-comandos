@@ -2,6 +2,7 @@ const { Client, GatewayIntentBits } = require('discord.js');
 const axios = require('axios');
 const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
+const cors = require('cors'); // agregado para permitir acceso remoto desde la app
 require('dotenv').config();
 
 // =======================
@@ -62,10 +63,12 @@ client.login(TOKEN);
 // =======================
 
 const app = express();
+app.use(cors()); // habilita CORS para acceso desde cualquier origen
+app.use(express.json()); // asegura que pueda leer JSON
 
 // Ruta pública para retransmitir el stream MJPEG
 app.use('/cam', createProxyMiddleware({
-  target: process.env.ESP32CAM_IP,
+  target: ESP32CAM_IP,
   changeOrigin: true,
   pathRewrite: {
     '^/cam': '/stream',
@@ -109,8 +112,6 @@ app.get('/status', async (req, res) => {
 });
 
 // Ruta para recibir comandos desde App Inventor
-app.use(express.json()); // Asegura que pueda leer JSON
-
 app.post('/comando', async (req, res) => {
   const { cmd } = req.body;
 
@@ -134,8 +135,11 @@ app.post('/comando', async (req, res) => {
   }
 });
 
-// Iniciar servidor web
-app.listen(3000, () => {
-  console.log('🌐 Servidor web activo en http://localhost:3000');
-  console.log('🔁 Stream disponible en http://localhost:3000/cam');
+// =======================
+// INICIO DEL SERVIDOR
+// =======================
+
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`🌐 Servidor web activo en puerto ${port}`);
 });
