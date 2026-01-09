@@ -135,6 +135,38 @@ app.post('/comando', async (req, res) => {
   }
 });
 
+// Variable para guardar el último comando
+let ultimoComando = null;
+
+// App Inventor manda comandos
+app.post('/comando', (req, res) => {
+  const { cmd, secret } = req.body;
+
+  // Validación de seguridad
+  if (secret !== process.env.SECRET) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+
+  // Validación de comandos válidos
+  const comandosValidos = ['f','b','l','r','i','g','j','h','s'];
+  if (!comandosValidos.includes(cmd)) {
+    return res.status(400).json({ error: 'Comando inválido' });
+  }
+
+  ultimoComando = cmd; // Guardar el comando
+  res.json({ status: 'ok', enviado: cmd });
+});
+
+// ESP8266 consulta el próximo comando
+app.get('/nextCommand', (req, res) => {
+  if (ultimoComando) {
+    res.json({ cmd: ultimoComando });
+    ultimoComando = null; // limpiar después de entregarlo
+  } else {
+    res.json({ cmd: null });
+  }
+});
+
 // =======================
 // INICIO DEL SERVIDOR
 // =======================
