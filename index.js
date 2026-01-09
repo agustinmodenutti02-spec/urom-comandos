@@ -2,7 +2,7 @@ const { Client, GatewayIntentBits } = require('discord.js');
 const axios = require('axios');
 const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
-const cors = require('cors'); // agregado para permitir acceso remoto desde la app
+const cors = require('cors');
 require('dotenv').config();
 
 // =======================
@@ -32,9 +32,8 @@ client.once('clientReady', () => {
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
-  const cmd = message.content.trim().toLowerCase(); // normaliza a minúsculas
+  const cmd = message.content.trim().toLowerCase();
 
-  // Lista de comandos válidos
   const comandosValidos = [
     'f','b','l','r','i','g','j','h','s',
     '/f','/b','/l','/r','/i','/g','/j','/h','/s',
@@ -44,7 +43,6 @@ client.on('messageCreate', async (message) => {
 
   if (comandosValidos.includes(cmd)) {
     try {
-      // Enviar al ESP8266
       await axios.get(`${ESP8266_IP}/?State=${encodeURIComponent(cmd)}`);
       message.reply(`✅ Comando enviado: ${cmd}`);
     } catch (error) {
@@ -59,27 +57,25 @@ client.on('messageCreate', async (message) => {
 client.login(TOKEN);
 
 // =======================
-// SERVIDOR EXPRESS PARA ESP32-CAM
+// SERVIDOR EXPRESS
 // =======================
 
 const app = express();
-app.use(cors()); // habilita CORS para acceso desde cualquier origen
-app.use(express.json()); // asegura que pueda leer JSON
+app.use(cors());
+app.use(express.json());
 
-// Ruta pública para retransmitir el stream MJPEG
+// Proxy para ESP32-CAM
 app.use('/cam', createProxyMiddleware({
   target: ESP32CAM_IP,
   changeOrigin: true,
-  pathRewrite: {
-    '^/cam': '/stream',
-  },
+  pathRewrite: { '^/cam': '/stream' },
   onError: (err, req, res) => {
     console.error('❌ Error al conectar con ESP32-CAM:', err.message);
     res.status(502).send('Error al conectar con ESP32-CAM');
   }
 }));
 
-// Página de prueba para visualizar el stream
+// Página de prueba
 app.get('/', (req, res) => {
   res.send(`
     <h1>📡 Stream de ESP32-CAM</h1>
@@ -87,12 +83,9 @@ app.get('/', (req, res) => {
   `);
 });
 
-// Ruta de estado para verificar conectividad
+// Estado
 app.get('/status', async (req, res) => {
-  const status = {
-    ESP8266: 'Desconocido',
-    ESP32CAM: 'Desconocido'
-  };
+  const status = { ESP8266: 'Desconocido', ESP32CAM: 'Desconocido' };
 
   try {
     await axios.get(`${ESP8266_IP}`);
@@ -111,49 +104,40 @@ app.get('/status', async (req, res) => {
   res.json(status);
 });
 
-// Ruta para recibir comandos desde App Inventor
+// =======================
+// COMANDOS (App Inventor + ESP8266)
+// =======================
+
+let ultimoComando = null;
+
 app.post('/comando', async (req, res) => {
-  const { cmd } = req.body;
+  const { cmd, secret } = req.body;
+
+  // Seguridad opcional
+  if (secret && secret !== process.env.SECRET) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
 
   const comandosValidos = [
     'f','b','l','r','i','g','j','h','s',
-    '/f','/b','/l','/r','/i','/g','/j','/h','/s',
-    '0','1','2','3','4','5','6','7','8','9',
     'encender luces','apagar luces','encender cooler','apagar cooler'
   ];
 
   if (!comandosValidos.includes(cmd)) {
-    return res.status(400).send({ error: 'Comando inválido' });
-  }
-
-  try {
-    await axios.get(`${ESP8266_IP}/?State=${encodeURIComponent(cmd)}`);
-    res.send({ status: 'ok', enviado: cmd });
-  } catch (error) {
-    console.error(`Error al enviar comando ${cmd}:`, error.message);
-    res.status(500).send({ error: 'Error al conectar con ESP8266' });
-  }
-});
-
-// Variable para guardar el último comando
-let ultimoComando = null;
-
-// App Inventor manda comandos
-app.post('/comando', (req, res) => {
-  const { cmd, secret } = req.body;
-
-  // Validación de seguridad
-  if (secret !== process.env.SECRET) {
-    return res.status(401).json({ error: 'No autorizado' });
-  }
-
-  // Validación de comandos válidos
-  const comandosValidos = ['f','b','l','r','i','g','j','h','s'];
-  if (!comandosValidos.includes(cmd)) {
     return res.status(400).json({ error: 'Comando inválido' });
   }
 
-  ultimoComando = cmd; // Guardar el comando
+  // Guardar para el ESP8266 (Webhook inverso)
+  ultimoComando = cmd;
+
+  // Intentar enviar directo al ESP8266 (si es accesible)
+  try {
+    await axios.get(`${ESP8266_IP}/?State=${encodeURIComponent(cmd)}`);
+  } catch (error) {
+    console.error(`Error al enviar comando ${cmd}:`, error.message);
+    // No cortamos la respuesta, porque igual lo guardamos en ultimoComando
+  }
+
   res.json({ status: 'ok', enviado: cmd });
 });
 
@@ -161,7 +145,7 @@ app.post('/comando', (req, res) => {
 app.get('/nextCommand', (req, res) => {
   if (ultimoComando) {
     res.json({ cmd: ultimoComando });
-    ultimoComando = null; // limpiar después de entregarlo
+    ultimoComando = null;
   } else {
     res.json({ cmd: null });
   }
